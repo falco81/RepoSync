@@ -55,7 +55,6 @@ for REPO_URL in $REPOS; do
     git -C "$REPO_PATH" pull --quiet 2>> "$LOG"
     NEW_HASH=$(git -C "$REPO_PATH" rev-parse HEAD 2>/dev/null)
 
-    # Archive ONLY when changes detected
     if [ "$OLD_HASH" != "$NEW_HASH" ]; then
       echo "  Archiving changes: $REPO_NAME ($TIMESTAMP)" >> "$LOG"
       tar -czf "$REPO_ARCHIVE_DIR/${REPO_NAME}_${TIMESTAMP}.tar.gz" \
@@ -80,7 +79,7 @@ find "$ARCHIVE_DIR" -name "*.tar.gz" -mtime +$KEEP_DAYS -delete
 TOTAL_FILES=$(find "$ARCHIVE_DIR" -name "*.tar.gz" | wc -l)
 echo "  Remaining archives: $TOTAL_FILES" >> "$LOG"
 
-# ---- 4. Clean old docs (keep index.md and archives.md) ----
+# ---- 4. Clean old docs ----
 find "$MKDOCS_DIR/docs" -mindepth 1 -maxdepth 1 \
   -not -name 'index.md' \
   -not -name 'archives.md' \
@@ -102,6 +101,9 @@ Local backup of all repositories from [github.com/$GITHUB_USER](https://github.c
 EOF
 
 # ---- 6. MkDocs configuration ----
+# Navigation:
+#   Top bar:  Home | Projects | Archives
+#   Sidebar:  all repositories listed under Projects section
 cat > "$MKDOCS_DIR/mkdocs.yml" << EOF
 site_name: GitHub Mirror – $GITHUB_USER
 site_description: Local backup of GitHub repositories
@@ -115,9 +117,12 @@ theme:
     primary: indigo
     accent: indigo
   features:
-    - navigation.tabs
-    - navigation.indexes
-    - navigation.top
+    - navigation.tabs           # top-level sections become tabs
+    - navigation.tabs.sticky    # tabs stay visible while scrolling
+    - navigation.sections       # sidebar shows sections expanded
+    - navigation.indexes        # section index pages
+    - navigation.top            # back-to-top button
+    - navigation.expand         # expand sidebar by default
     - search.highlight
     - search.suggest
     - content.code.copy
@@ -126,12 +131,10 @@ docs_dir: docs
 
 nav:
   - Home: index.md
-  - 🗄️ Archives: archives.md
+  - Projects:
 EOF
 
-# ---- 7. Generate archives overview page (links only, no file copying) ----
-# NOTE: named "archives" (not "archive") to avoid conflict with
-#       Apache Alias /archive → /opt/github-mirror/archive/
+# ---- 7. Archive overview page ----
 ARCHIVE_INDEX="$MKDOCS_DIR/docs/archives.md"
 cat > "$ARCHIVE_INDEX" << EOF
 # 🗄️ Repository Archives
@@ -183,10 +186,8 @@ for REPO_PATH in "$REPOS_DIR"/*/; do
   DEST="$MKDOCS_DIR/docs/$REPO_NAME"
   mkdir -p "$DEST"
 
-  # Copy all files except .git
   rsync -a --exclude='.git/' "$REPO_PATH" "$DEST/"
 
-  # Use README as index page
   if [ -f "$DEST/README.md" ]; then
     cp "$DEST/README.md" "$DEST/index.md"
   else
@@ -209,13 +210,12 @@ for REPO_PATH in "$REPOS_DIR"/*/; do
 
 MDEOF
 
-  # List all non-markdown files as download links
   find "$DEST" -not -path '*/.git/*' -not -name '*.md' -type f | sort | while read -r FILE; do
     REL="${FILE#$DEST/}"
     echo "- [📄 $REL]($REL)" >> "$DEST/index.md"
   done
 
-  # Show last 5 archive versions
+  # Last 5 archive versions
   REPO_ARCHIVE_DIR="$ARCHIVE_DIR/$REPO_NAME"
   ARCHIVE_COUNT=$(find "$REPO_ARCHIVE_DIR" -name "*.tar.gz" 2>/dev/null | wc -l)
 
@@ -243,9 +243,17 @@ MDEOF
     echo "" >> "$DEST/index.md"
   fi
 
-  echo "  - $REPO_NAME: $REPO_NAME/index.md" >> "$MKDOCS_DIR/mkdocs.yml"
+  # Add to nav under Projects section (indented under "Projects:")
+  echo "      - $REPO_NAME: $REPO_NAME/index.md" >> "$MKDOCS_DIR/mkdocs.yml"
   echo "- [$REPO_NAME]($REPO_NAME/index.md)" >> "$MKDOCS_DIR/docs/index.md"
 done
+
+# Close nav with Archives section
+cat >> "$MKDOCS_DIR/mkdocs.yml" << EOF
+  - Archives:
+      - Overview: archives.md
+      - Raw files: $SITE_URL/archive/
+EOF
 
 # ---- 9. Build MkDocs ----
 echo "Building MkDocs site..." >> "$LOG"

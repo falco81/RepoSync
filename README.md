@@ -16,6 +16,30 @@ A self-hosted solution that automatically mirrors all your GitHub repositories t
 
 ---
 
+## Navigation Structure
+
+The web interface uses a **3-tab top menu** that stays clean regardless of how many projects you have:
+
+```
+┌──────────────────────────────────────────────────┐
+│  Home  │  Projects  │  Archives                  │  ← top tabs
+└──────────────────────────────────────────────────┘
+│                      │                           │
+│  left sidebar        │  page content             │
+│  ─────────────       │                           │
+│  Projects            │                           │
+│  ├── repo-one        │                           │
+│  ├── repo-two        │                           │
+│  ├── repo-three      │                           │
+│  └── ...             │                           │
+│                      │                           │
+└──────────────────────┴───────────────────────────┘
+```
+
+All repositories appear in the **left sidebar** under the Projects tab – fully scrollable, no overflow in the top bar.
+
+---
+
 ## Requirements
 
 - Alma Linux 8.x (or compatible RHEL-based distro)
