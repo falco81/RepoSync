@@ -12,7 +12,7 @@ SITE_URL="https://docs.example.com"     # public URL of your server
 REPOS_DIR="/opt/github-mirror/repos"
 MKDOCS_DIR="/opt/github-mirror/mkdocs"
 WWW_DIR="/var/www/html/docs"
-ARCHIVE_DIR="/opt/github-mirror/archive"
+ARCHIVE_DIR="/opt/github-mirror/rawfiles"
 LOG="/var/log/github-mirror/sync.log"
 KEEP_DAYS=60                             # retain archives for 2 months
 
@@ -142,7 +142,7 @@ cat > "$ARCHIVE_INDEX" << EOF
 Snapshots of all repositories – retained for **2 months**.
 A new archive is created **only when changes are detected**.
 
-<a href="$SITE_URL/archive/" target="_blank" style="background:#1976D2;color:white;padding:8px 16px;text-decoration:none;border-radius:5px;font-weight:bold;">📂 Open raw file browser</a>
+<a href="$SITE_URL/rawfiles/" target="_blank" style="background:#1976D2;color:white;padding:8px 16px;text-decoration:none;border-radius:5px;font-weight:bold;">📂 Open raw file browser</a>
 
 **Last updated:** $(date '+%Y-%m-%d %H:%M')
 
@@ -166,7 +166,7 @@ for REPO_ARCHIVE_DIR in "$ARCHIVE_DIR"/*/; do
     ARCH_DATE=$(echo "$ARCH_NAME" | grep -oP '\d{8}_\d{4}' | \
       sed 's/\(....\)\(..\)\(..\)_\(..\)\(..\)/\3.\2.\1 \4:\5/')
     ARCH_SIZE=$(du -sh "$ARCH" | cut -f1)
-    ARCH_URL="$SITE_URL/archive/$REPO_NAME/$ARCH_NAME"
+    ARCH_URL="$SITE_URL/rawfiles/$REPO_NAME/$ARCH_NAME"
     echo "| $ARCH_NAME | $ARCH_DATE | $ARCH_SIZE | [⬇️ Download]($ARCH_URL) |" >> "$ARCHIVE_INDEX"
   done
 
@@ -237,7 +237,7 @@ MDEOF
       ARCH_DATE=$(echo "$ARCH_NAME" | grep -oP '\d{8}_\d{4}' | \
         sed 's/\(....\)\(..\)\(..\)_\(..\)\(..\)/\3.\2.\1 \4:\5/')
       ARCH_SIZE=$(du -sh "$ARCH" | cut -f1)
-      ARCH_URL="$SITE_URL/archive/$REPO_NAME/$ARCH_NAME"
+      ARCH_URL="$SITE_URL/rawfiles/$REPO_NAME/$ARCH_NAME"
       echo "| $ARCH_NAME | $ARCH_DATE | $ARCH_SIZE | [⬇️ Download]($ARCH_URL) |" >> "$DEST/index.md"
     done
     echo "" >> "$DEST/index.md"
@@ -250,6 +250,7 @@ done
 
 # Close nav with Archives section
 # NOTE: external URLs cannot be used in MkDocs nav - link is inside archives.md instead
+# Using /rawfiles path to avoid any conflict with MkDocs generated output
 cat >> "$MKDOCS_DIR/mkdocs.yml" << EOF
   - Archives: archives.md
 EOF
@@ -261,7 +262,7 @@ mkdocs build --quiet 2>> "$LOG"
 
 # ---- 10. Deploy to Apache ----
 echo "Deploying to Apache..." >> "$LOG"
-rsync -a --delete --exclude="/archive" "$MKDOCS_DIR/site/" "$WWW_DIR/"
+rsync -a --delete --exclude="/rawfiles" "$MKDOCS_DIR/site/" "$WWW_DIR/"
 chown -R apache:apache "$WWW_DIR"
 
 # ---- 11. Summary ----
