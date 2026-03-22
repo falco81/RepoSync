@@ -249,10 +249,9 @@ MDEOF
 done
 
 # Close nav with Archives section
+# NOTE: external URLs cannot be used in MkDocs nav - link is inside archives.md instead
 cat >> "$MKDOCS_DIR/mkdocs.yml" << EOF
-  - Archives:
-      - Overview: archives.md
-      - Raw files: $SITE_URL/archive/
+  - Archives: archives.md
 EOF
 
 # ---- 9. Build MkDocs ----
