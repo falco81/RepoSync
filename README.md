@@ -108,6 +108,8 @@ mkdocs --version
 deactivate
 ```
 
+> **Note:** Alma Linux 8 ships with Python 3.6 by default. Always use `python3.11` explicitly – do not use the system `pip3` as it will install an incompatible older version of MkDocs.
+
 ### 5. GitHub Personal Access Token
 
 1. Go to **GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)**
@@ -146,7 +148,16 @@ mkdir -p /etc/httpd/certs
 chmod 700 /etc/httpd/certs
 ```
 
-### 8. Apache configuration
+### 8. Archive directory permissions
+
+Apache must be able to read the archive directory:
+
+```bash
+chmod -R 755 /opt/github-mirror/archive
+chown -R root:apache /opt/github-mirror/archive
+```
+
+### 9. Apache configuration
 
 ```bash
 cp github-mirror.conf /etc/httpd/conf.d/github-mirror.conf
@@ -158,7 +169,7 @@ httpd -t
 systemctl restart httpd
 ```
 
-### 9. First run
+### 10. First run
 
 ```bash
 /opt/github-mirror/sync-github.sh
@@ -167,7 +178,7 @@ systemctl restart httpd
 tail -f /var/log/github-mirror/sync.log
 ```
 
-### 10. Cron – hourly sync
+### 11. Cron – hourly sync
 
 ```bash
 crontab -e
@@ -240,18 +251,54 @@ The CGI script streams the ZIP directly to the browser with no temporary file on
 |-----|-------------|
 | `https://docs.example.com/` | Home – list of all projects |
 | `https://docs.example.com/REPO_NAME/` | Project page with files and archive links |
-| `https://docs.example.com/archives/` | MkDocs archive overview page |
-| `https://docs.example.com/archive/` | Apache directory listing of raw `.tar.gz` files |
+| `https://docs.example.com/archives/` | MkDocs archive overview with download links |
+| `https://docs.example.com/rawfiles/` | Apache directory listing of raw `.tar.gz` files |
 | `https://docs.example.com/cgi-bin/download-repo.cgi?repo=NAME` | Download repo as ZIP |
 
 ---
 
-## Notes
+## Important Notes
 
-- **SELinux**: if enabled, run `setsebool -P httpd_unified 1` and `restorecon -Rv /var/www/html/docs`
-- **Private repos**: the `repo` token scope covers both public and private repositories
-- **More than 100 repos**: the script handles GitHub pagination automatically
-- The MkDocs archive page is named `/archives/` (not `/archive/`) to avoid conflicting with the Apache `Alias /archive` directive
+### Naming conventions – avoid path conflicts
+
+MkDocs generates static HTML into `/var/www/html/docs/`. Apache `Alias` directives can conflict if they share a path with MkDocs output:
+
+| Path | Used for | Why |
+|------|----------|-----|
+| `/rawfiles/` | Apache Alias → archive `.tar.gz` files | Named `rawfiles` (not `archive`) so MkDocs never generates a conflicting directory |
+| `/archives/` | MkDocs page – archive overview with links | Named `archives` (not `archive`) for the same reason |
+
+### rsync excludes `/rawfiles`
+
+The deploy step uses `--exclude="/rawfiles"` to prevent rsync from accidentally overwriting the Apache Alias path:
+
+```bash
+rsync -a --delete --exclude="/rawfiles" "$MKDOCS_DIR/site/" "$WWW_DIR/"
+```
+
+### Content-Disposition only on .tar.gz
+
+The `Content-Disposition: attachment` header is applied **only to `.tar.gz` files** using `LocationMatch`, not to the entire directory. This ensures the directory listing renders in the browser while archive files are downloaded directly:
+
+```apache
+<LocationMatch "^/rawfiles/.*\.tar\.gz$">
+    Header set Content-Disposition "attachment"
+    AddType application/x-tar .gz
+</LocationMatch>
+```
+
+### MkDocs nav does not support external URLs
+
+External links (e.g. `https://docs.example.com/rawfiles/`) cannot be used in the MkDocs `nav:` block – MkDocs would generate an empty HTML page instead. All external links are placed inside page content as HTML anchors.
+
+### SELinux
+
+If SELinux is enabled on your system:
+
+```bash
+setsebool -P httpd_unified 1
+restorecon -Rv /var/www/html/docs
+```
 
 ---
 
