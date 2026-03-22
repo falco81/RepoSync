@@ -142,7 +142,7 @@ cat > "$ARCHIVE_INDEX" << EOF
 Snapshots of all repositories – retained for **2 months**.
 A new archive is created **only when changes are detected**.
 
-Direct file browser: [$SITE_URL/archive/]($SITE_URL/archive/)
+<a href="$SITE_URL/archive/" target="_blank" style="background:#1976D2;color:white;padding:8px 16px;text-decoration:none;border-radius:5px;font-weight:bold;">📂 Open raw file browser</a>
 
 **Last updated:** $(date '+%Y-%m-%d %H:%M')
 
@@ -261,7 +261,7 @@ mkdocs build --quiet 2>> "$LOG"
 
 # ---- 10. Deploy to Apache ----
 echo "Deploying to Apache..." >> "$LOG"
-rsync -a --delete "$MKDOCS_DIR/site/" "$WWW_DIR/"
+rsync -a --delete --exclude="/archive" "$MKDOCS_DIR/site/" "$WWW_DIR/"
 chown -R apache:apache "$WWW_DIR"
 
 # ---- 11. Summary ----
