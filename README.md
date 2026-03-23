@@ -56,7 +56,7 @@ All repositories appear in the **left sidebar** under the Projects tab – fully
 /opt/github-mirror/
 ├── repos/          # cloned repositories (raw git)
 ├── mkdocs/         # MkDocs project (generated)
-├── archive/        # versioned .tar.gz archives
+├── archive/        # versioned .tar.gz archives  ← physical location
 └── venv/           # Python virtual environment
 
 /var/www/html/docs/ # Apache DocumentRoot (MkDocs output)
@@ -245,6 +245,34 @@ The CGI script streams the ZIP directly to the browser with no temporary file on
 
 ---
 
+## Resync Archives
+
+The script includes a `--resync-archives` flag that scans all local repositories, removes corrupt archives, and rebuilds any that are missing.
+
+```bash
+# Step 1 – rebuild missing/corrupt archives
+/opt/github-mirror/sync-github.sh --resync-archives
+
+# Step 2 – regenerate the website to reflect the new archives
+/opt/github-mirror/sync-github.sh
+```
+
+### When to use resync
+
+| Situation | Action needed |
+|-----------|---------------|
+| Normal operation | Nothing – cron handles everything automatically |
+| Repository changed on GitHub | Nothing – normal sync archives it automatically |
+| New repository added on GitHub | Nothing – cloned and archived on next hourly sync |
+| Script had a bug that produced corrupt archives | Run `--resync-archives` |
+| Archive files deleted manually from disk | Run `--resync-archives` |
+| Server migration or restore from backup | Run `--resync-archives` |
+| Archives shown on web but files not downloadable | Run `--resync-archives` |
+
+> `--resync-archives` is a **recovery tool** – in normal operation you will never need it.
+
+---
+
 ## Web Interface
 
 | URL | Description |
@@ -263,14 +291,26 @@ The CGI script streams the ZIP directly to the browser with no temporary file on
 
 MkDocs generates static HTML into `/var/www/html/docs/`. Apache `Alias` directives can conflict if they share a path with MkDocs output:
 
-| Path | Used for | Why |
-|------|----------|-----|
-| `/rawfiles/` | Apache Alias → archive `.tar.gz` files | Named `rawfiles` (not `archive`) so MkDocs never generates a conflicting directory |
-| `/archives/` | MkDocs page – archive overview with links | Named `archives` (not `archive`) for the same reason |
+| URL path | Used for | Why this name |
+|----------|----------|---------------|
+| `/rawfiles/` | Apache Alias → `.tar.gz` files | Not `archive` – MkDocs must never generate a conflicting directory |
+| `/archives/` | MkDocs page – archive overview | Not `archive` – same reason |
+
+### Physical directory vs URL path
+
+The archive directory on disk and the URL path are **intentionally different names**:
+
+```
+Physical location:  /opt/github-mirror/archive/
+Apache URL:         /rawfiles/  →  Alias points to /opt/github-mirror/archive/
+Script variable:    ARCHIVE_DIR="/opt/github-mirror/archive/"  ← always the physical path
+```
+
+> The script must always reference the **physical path**, not the URL path.
 
 ### rsync excludes `/rawfiles`
 
-The deploy step uses `--exclude="/rawfiles"` to prevent rsync from accidentally overwriting the Apache Alias path:
+The deploy step uses `--exclude="/rawfiles"` to prevent rsync from overwriting the Apache Alias path:
 
 ```bash
 rsync -a --delete --exclude="/rawfiles" "$MKDOCS_DIR/site/" "$WWW_DIR/"
@@ -278,7 +318,7 @@ rsync -a --delete --exclude="/rawfiles" "$MKDOCS_DIR/site/" "$WWW_DIR/"
 
 ### Content-Disposition only on .tar.gz
 
-The `Content-Disposition: attachment` header is applied **only to `.tar.gz` files** using `LocationMatch`, not to the entire directory. This ensures the directory listing renders in the browser while archive files are downloaded directly:
+The `Content-Disposition: attachment` header is applied **only to `.tar.gz` files** using `LocationMatch`, not to the entire directory. This ensures the directory listing renders in the browser while archive files trigger a download:
 
 ```apache
 <LocationMatch "^/rawfiles/.*\.tar\.gz$">
@@ -289,7 +329,19 @@ The `Content-Disposition: attachment` header is applied **only to `.tar.gz` file
 
 ### MkDocs nav does not support external URLs
 
-External links (e.g. `https://docs.example.com/rawfiles/`) cannot be used in the MkDocs `nav:` block – MkDocs would generate an empty HTML page instead. All external links are placed inside page content as HTML anchors.
+External links cannot be used in the MkDocs `nav:` block – MkDocs generates an empty HTML page instead. All external links are placed inside page content as HTML anchor tags.
+
+### tar --exclude argument order
+
+The `--exclude` flag must come **before** the `-C` and source path arguments:
+
+```bash
+# ❌ wrong – --exclude has no effect
+tar -czf output.tar.gz -C /repos REPO_NAME --exclude='.git'
+
+# ✅ correct
+tar -czf output.tar.gz --exclude='.git' -C /repos REPO_NAME
+```
 
 ### SELinux
 
