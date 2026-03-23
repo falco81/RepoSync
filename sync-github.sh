@@ -12,7 +12,7 @@ SITE_URL="https://docs.example.com"     # public URL of your server
 REPOS_DIR="/opt/github-mirror/repos"
 MKDOCS_DIR="/opt/github-mirror/mkdocs"
 WWW_DIR="/var/www/html/docs"
-ARCHIVE_DIR="/opt/github-mirror/rawfiles"
+ARCHIVE_DIR="/opt/github-mirror/archive"  # physical dir – Apache serves this as /rawfiles/
 LOG="/var/log/github-mirror/sync.log"
 KEEP_DAYS=60                             # retain archives for 2 months
 
@@ -20,6 +20,56 @@ echo "==============================" >> "$LOG"
 echo "START: $(date '+%Y-%m-%d %H:%M')" >> "$LOG"
 
 mkdir -p "$REPOS_DIR" "$MKDOCS_DIR/docs" "$ARCHIVE_DIR"
+
+# ============================================================
+# Resync mode – rebuild missing archives for all repositories
+# Usage: ./sync-github.sh --resync-archives
+# ============================================================
+if [[ "$1" == "--resync-archives" ]]; then
+  echo "==============================" >> "$LOG"
+  echo "RESYNC START: $(date '+%Y-%m-%d %H:%M')" >> "$LOG"
+  echo "Running archive resync..." >> "$LOG"
+  TIMESTAMP=$(date '+%Y%m%d_%H%M')
+  RESYNC_COUNT=0
+  REMOVED_COUNT=0
+
+  for REPO_PATH in "$REPOS_DIR"/*/; do
+    REPO_NAME=$(basename "$REPO_PATH")
+    REPO_ARCHIVE_DIR="$ARCHIVE_DIR/$REPO_NAME"
+    mkdir -p "$REPO_ARCHIVE_DIR"
+
+    # Remove corrupt/empty archives (failed tar creates empty files)
+    for ARCH in "$REPO_ARCHIVE_DIR"/*.tar.gz; do
+      [ -f "$ARCH" ] || continue
+      if ! tar -tzf "$ARCH" &>/dev/null; then
+        echo "  Removing corrupt archive: $(basename \"$ARCH\")" >> "$LOG"
+        rm -f "$ARCH"
+        ((REMOVED_COUNT++))
+      fi
+    done
+
+    # Count remaining valid archives
+    VALID=$(find "$REPO_ARCHIVE_DIR" -name "*.tar.gz" 2>/dev/null | wc -l)
+
+    if [ "$VALID" -eq 0 ]; then
+      echo "  Rebuilding archive: $REPO_NAME" >> "$LOG"
+      tar -czf "$REPO_ARCHIVE_DIR/${REPO_NAME}_${TIMESTAMP}.tar.gz" \
+        --exclude='.git' \
+        -C "$REPOS_DIR" "$REPO_NAME" 2>> "$LOG"
+      ((RESYNC_COUNT++))
+    else
+      echo "  OK (skipping): $REPO_NAME ($VALID valid archive(s) exist)" >> "$LOG"
+    fi
+  done
+
+  echo "Resync complete: removed $REMOVED_COUNT corrupt, rebuilt $RESYNC_COUNT archives" >> "$LOG"
+  echo "RESYNC DONE: $(date '+%Y-%m-%d %H:%M')" >> "$LOG"
+  echo ""
+  echo "Done. Removed $REMOVED_COUNT corrupt archives, rebuilt $RESYNC_COUNT."
+  echo "Run the script without arguments to do a full sync."
+  deactivate
+  exit 0
+fi
 
 # ---- 1. Fetch list of all repositories (paginated) ----
 echo "Fetching repository list..." >> "$LOG"
@@ -58,8 +108,8 @@ for REPO_URL in $REPOS; do
     if [ "$OLD_HASH" != "$NEW_HASH" ]; then
       echo "  Archiving changes: $REPO_NAME ($TIMESTAMP)" >> "$LOG"
       tar -czf "$REPO_ARCHIVE_DIR/${REPO_NAME}_${TIMESTAMP}.tar.gz" \
-        -C "$REPOS_DIR" "$REPO_NAME" \
-        --exclude='.git' 2>> "$LOG"
+        --exclude='.git' \
+        -C "$REPOS_DIR" "$REPO_NAME" 2>> "$LOG"
     else
       echo "  No changes: $REPO_NAME" >> "$LOG"
     fi
@@ -68,8 +118,8 @@ for REPO_URL in $REPOS; do
     git clone --quiet "$AUTH_URL" "$REPO_PATH" 2>> "$LOG"
     echo "  Initial archive: $REPO_NAME ($TIMESTAMP)" >> "$LOG"
     tar -czf "$REPO_ARCHIVE_DIR/${REPO_NAME}_${TIMESTAMP}.tar.gz" \
-      -C "$REPOS_DIR" "$REPO_NAME" \
-      --exclude='.git' 2>> "$LOG"
+      --exclude='.git' \
+      -C "$REPOS_DIR" "$REPO_NAME" 2>> "$LOG"
   fi
 done
 
@@ -79,11 +129,8 @@ find "$ARCHIVE_DIR" -name "*.tar.gz" -mtime +$KEEP_DAYS -delete
 TOTAL_FILES=$(find "$ARCHIVE_DIR" -name "*.tar.gz" | wc -l)
 echo "  Remaining archives: $TOTAL_FILES" >> "$LOG"
 
-# ---- 4. Clean old docs ----
-find "$MKDOCS_DIR/docs" -mindepth 1 -maxdepth 1 \
-  -not -name 'index.md' \
-  -not -name 'archives.md' \
-  -exec rm -rf {} +
+# ---- 4. Clean old docs – delete everything, regenerate from scratch ----
+rm -rf "$MKDOCS_DIR/docs"
 mkdir -p "$MKDOCS_DIR/docs"
 
 # ---- 5. Main index page ----
